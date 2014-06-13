@@ -7,6 +7,12 @@
 #Changelog:     Wed Jun 11 12:07:33 CEST 2014
 #               First test version     
 #               
+#               Fri Jun 13 16:46:22 CEST 2014
+#               Ignore incomplete locus
+#               Match bands only from same locus
+#
+#               Fri Jun 13 16:47:34 CEST 2014
+#               Commit first working version
 #:::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 import traceback
@@ -109,10 +115,40 @@ class BandSharing():
         count_shared = 0
         for band_f in self.females[ female_id ]:
             for band_m in self.males[ male_id ]:
-                if band_f.split( "-" )[ 0 ] == band_m.split( "-" )[ 0 ]:
+                if band_f == band_m:
                     count_shared += 1
                     break
         return count_shared
+    
+    def getLocus(self, band_list):
+        valid_locus = []
+        for b in band_list:
+            locus = b.split("-")[1]
+            if not locus in valid_locus: valid_locus.append( locus )
+        return valid_locus
+                
+            
+    #verify complete lolcus
+    def getValidData(self, female, male):
+        valid_female_locus = self.getLocus( female )
+        valid_male_locus   = self.getLocus( male )
+        tot_f = 0
+        tot_m = 0
+        incomplete_locus = []
+        for b in female:
+            locus = b.split("-")[1]
+            if locus in valid_male_locus:
+                tot_f += 1
+            else:
+                if not locus in incomplete_locus: incomplete_locus.append( locus )
+        
+        for b in male:
+            locus = b.split("-")[1]
+            if locus in valid_female_locus:
+                tot_m += 1
+            else:
+                if not locus in incomplete_locus: incomplete_locus.append( locus )
+        return tot_f, tot_m, '_'.join( incomplete_locus )
         
     def matchAll(self):
         sys.stdout.write( 'Compute Band Sharing' )                                                                                                                                                                 
@@ -124,11 +160,10 @@ class BandSharing():
                 self.running()
                 
                 tot_shared  = self.getSharedBands( f, m )
-                tot_f       = len( self.females[ f ] )
-                tot_m       = len( self.males[ m ] )                  
+                tot_f, tot_m, incomplete_locus = self.getValidData( self.females[ f ], self.males[ m ] )                  
                 band_sharing = ( 2.0 * tot_shared ) / ( tot_f + tot_m )
-                bandsharing[ ( "%d-%d-%d-%d-%d" %( f, m, tot_shared, tot_f, tot_m ) ) ] = band_sharing
-        self.bandsharing = sorted( bandsharing.iteritems(), key = operator.itemgetter( 1 ), reverse=True)
+                bandsharing[ ( "%d-%d-%d-%d-%d-%s" %( f, m, tot_shared, tot_f, tot_m, incomplete_locus ) ) ] = band_sharing
+        self.bandsharing = sorted( bandsharing.iteritems(), key = operator.itemgetter( 1 ) )
         self.ok()
     
     #::::::::::::::::::::::::::
@@ -155,15 +190,17 @@ class BandSharing():
     def writeBandsharing( self, f ):
         
         #write bandsharing
-        f.write( "Female ID,Male ID,Band Sharing,Nfm,Nf,Nm\n" )
+        f.write( "Female ID,Male ID,Band Sharing,Nfm,Nf,Nm,Ignored Locus (bacause incomplete)\n" )
         for bs in self.bandsharing:
-            Female_ID    = bs[ 0 ].split( "-" )[ 0 ]
-            Male_ID      = bs[ 0 ].split( "-" )[ 1 ] 
-            Band_Sharing = bs[ 1 ]
-            Nfm          = bs[ 0 ].split( "-" )[ 2 ]
-            Nf           = bs[ 0 ].split( "-" )[ 3 ]
-            Nm           = bs[ 0 ].split( "-" )[ 4 ]
-            match_string = "%s,%s,%f,%s,%s,%s\n" %( Female_ID, Male_ID, Band_Sharing, Nfm, Nf, Nm ) 
+            Female_ID     = bs[ 0 ].split( "-" )[ 0 ]
+            Male_ID       = bs[ 0 ].split( "-" )[ 1 ] 
+            Band_Sharing  = bs[ 1 ]
+            Nfm           = bs[ 0 ].split( "-" )[ 2 ]
+            Nf            = bs[ 0 ].split( "-" )[ 3 ]
+            Nm            = bs[ 0 ].split( "-" )[ 4 ]
+            Nm            = bs[ 0 ].split( "-" )[ 4 ]
+            IgnoredLocus = bs[ 0 ].split( "-" )[ 5 ].replace("_", " ")
+            match_string = "%s,%s,%f,%s,%s,%s,%s\n" %( Female_ID, Male_ID, Band_Sharing, Nfm, Nf, Nm, IgnoredLocus ) 
             f.write( match_string )
         
     def writeDetails( self, f ):
@@ -177,7 +214,10 @@ class BandSharing():
             
             female_bands = self.females[ Female_ID ]
             male_bands   = self.males[ Male_ID ]
-            f.write( "Love affinity details between female id %s an male id %s (Band Sharing = %f )\n" %( Female_ID, Male_ID, bs[ 1 ]  ) )
+            bandsharing  = bs[ 1 ]
+            ignored_locus = bs[ 0 ].split("-")[-1].split("_")
+
+            f.write( "Love affinity details between female id %s an male id %s (Band Sharing = %f and Ignored Locus = %s )\n" %( Female_ID, Male_ID, bandsharing, ' '.join( ignored_locus ) ) )
                 
             #run until left or right is out
             i, j = 0, 0
@@ -185,15 +225,21 @@ class BandSharing():
                 female_band_val = female_bands[ i ].split("-")[0]
                 male_band_val   = male_bands[ j ].split("-")[0]
                 
+                female_band_locus = female_bands[ i ].split("-")[1]
+                male_band_locus   = male_bands[ j ].split("-")[1]
+                
                 #if current left val is < current right val; assign to master list
                 if female_band_val < male_band_val:
-                    f.write( "%s,\n" %( female_bands[ i ]) )
+                    if female_band_locus not in ignored_locus:
+                        f.write( "%s,\n" %( female_bands[ i ]) )
                     i += 1; 
                 elif female_band_val == male_band_val:
-                    f.write( "%s,%s,X\n" %( female_bands[ i ], male_bands[ j ]) )
+                    if female_band_locus not in ignored_locus and female_band_locus not in ignored_locus:
+                        f.write( "%s,%s\n" %( female_bands[ i ], male_bands[ j ]) )
                     i += 1; j += 1
                 else:
-                    f.write( ",%s\n" %( male_bands[ j ]) )
+                    if male_band_locus not in ignored_locus:
+                        f.write( ",%s\n" %( male_bands[ j ]) )
                     j += 1;
             
             if i < len( female_bands ):
@@ -209,7 +255,6 @@ class BandSharing():
             
     #::::::::::::::::::::::::::::::::::::::::::::::::::::::
     def run( self ):
-        print os.path.join( self.input_dir, "*" )
         for input_filename_complete in glob.glob( os.path.join( self.input_dir, "*.csv" ) ):
             input_filename = os.path.basename( input_filename_complete )
             self.read( input_filename_complete )
