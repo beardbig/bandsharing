@@ -35,9 +35,10 @@ class BandSharing():
             print "create output directory %s...............[ OK ]" %( self.output_dir )
         
         
-        self.females = {}
-        self.males   = {}
-        
+        self.females = {} #list of females
+        self.males   = {} #list of males
+        self.bisex   = {} #list of individuals without gender column       
+        self.unisex  = {} #unified list --> females + males + bisex  
         #results
         self.bandsharing = []
     
@@ -63,7 +64,7 @@ class BandSharing():
             #each line must contains at leas 4 elements
             if cells < 4: raise 
             
-            #get fgender and id
+            #get gender and id
             gender = self.getGender( cells )
             key = self.getId( cells )
             
@@ -86,7 +87,7 @@ class BandSharing():
         elif cell.lower() == "f":
             gender = self.females
         else:
-            gender = None
+            gender = self.bisex
         return gender       
     
     def getId( self, cells ):
@@ -96,7 +97,8 @@ class BandSharing():
         bands = []
         locus = cells[ 1 ]
         for i in range( 2, len( cells) -1 ):
-            if cells[ i ] != "0":
+            #empty cells considered as 0
+            if cells[ i ] != "0" and cells[ i ].strip():
                 bands.append( cells[ i ] + "-" + locus  )
         return bands
     
@@ -106,10 +108,9 @@ class BandSharing():
     #      perform bandsharing evaluiation and order vectors    
     #::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     def orderVectors(self):
-        for f in self.females:
-            self.females[ f ].sort()
-        for m in self.males:
-            self.males[ m ].sort()
+        for gender_list in [ self.females, self.males, self.bisex ]:
+            for el in gender_list:
+                gender_list[ el ].sort()
         
     def getSharedBands(self, female_id, male_id):
         count_shared = 0
@@ -190,7 +191,7 @@ class BandSharing():
     def writeBandsharing( self, f ):
         
         #write bandsharing
-        f.write( "Female ID,Male ID,Band Sharing,Nfm,Nf,Nm,Ignored Locus (bacause incomplete)\n" )
+        f.write( "Female ID,Male ID,Band Sharing,1-BS,Nfm,Nf,Nm,Ignored Locus (bacause incomplete)\n" )
         for bs in self.bandsharing:
             Female_ID     = bs[ 0 ].split( "-" )[ 0 ]
             Male_ID       = bs[ 0 ].split( "-" )[ 1 ] 
@@ -200,11 +201,10 @@ class BandSharing():
             Nm            = bs[ 0 ].split( "-" )[ 4 ]
             Nm            = bs[ 0 ].split( "-" )[ 4 ]
             IgnoredLocus = bs[ 0 ].split( "-" )[ 5 ].replace("_", " ")
-            match_string = "%s,%s,%f,%s,%s,%s,%s\n" %( Female_ID, Male_ID, Band_Sharing, Nfm, Nf, Nm, IgnoredLocus ) 
+            match_string = "%s,%s,%f,%f,%s,%s,%s,%s\n" %( Female_ID, Male_ID, Band_Sharing, 1-Band_Sharing, Nfm, Nf, Nm, IgnoredLocus ) 
             f.write( match_string )
         
     def writeDetails( self, f ):
-        
         #write bandsharing
         f.write( "\n\nBand Sharing details\n\n" )
         for bs in self.bandsharing:
@@ -275,6 +275,7 @@ class BandSharing():
             #reset variables
             self.females = {}
             self.males   = {}
+            self.bisex   = {}
             self.bandsharing = []
             
                     

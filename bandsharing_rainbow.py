@@ -216,6 +216,7 @@ class BandSharing():
         f.write( "\n\nBand Sharing summary matrix\n\n" )
         keys = self.unisex.keys()
         keys.sort()
+        f.write( "BS \ 1-BS")
         for el in keys:
             f.write( ",%s" %( el ))
         f.write( "\n" )
@@ -223,8 +224,10 @@ class BandSharing():
             f.write( "%s" %( el1 ) )
             for el2 in keys:
                 f.write( ",")
-                if el1 != el2:
+                if el1 > el2:
                     f.write( "%f" %( self.getBS( el1, el2 ) ) )
+                elif el1 < el2:
+                    f.write( "%f" %( 1 - self.getBS( el1, el2 ) ) )
             f.write( "\n" )
             
 
@@ -285,7 +288,7 @@ class BandSharing():
             self.orderVectors()
             self.matchAll()
             
-            output_filename = "computed_bandsharing_" + input_filename
+            output_filename = "rainbow_bandsharing_" + input_filename
             output_filename_complete = os.path.join( self.output_dir, output_filename )
             if not os.path.isfile( output_filename_complete ) or OVERWRITE:
                 self.write( output_filename_complete, input_filename )
