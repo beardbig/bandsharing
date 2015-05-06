@@ -13,6 +13,14 @@
 #
 #               Fri Jun 13 16:47:34 CEST 2014
 #               Commit first working version
+#
+#               Tue May  5 17:20:57 CEST 2015
+#               Compute bandsahring ignoring gender
+#               Add also a summary matrix to output csv file
+#
+#               Wed May  6 10:14:32 CEST 2015
+#               Merge bandsharing and bandsharing_rainbow classes
+#
 #:::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 import traceback
@@ -34,13 +42,14 @@ class BandSharing():
             os.mkdir( self.output_dir )
             print "create output directory %s...............[ OK ]" %( self.output_dir )
         
+        self.genders  = {} #list of individual genders       
+        self.unisex   = {} #unified list --> females + males + bisex  
         
-        self.females = {} #list of females
-        self.males   = {} #list of males
-        self.bisex   = {} #list of individuals without gender column       
-        self.unisex  = {} #unified list --> females + males + bisex  
         #results
         self.bandsharing = []
+        
+        #If vatican_constraint == True compute bandsharing only between individual of different gender and only if gender is specified 
+        self.vatican_constraint = True
     
     #:::::::::::::::::::::::::
     #      read dataset    
@@ -64,17 +73,18 @@ class BandSharing():
             #each line must contains at leas 4 elements
             if cells < 4: raise 
             
-            #get gender and id
-            gender = self.getGender( cells )
+            #get id
             key = self.getId( cells )
             
             #add new value to dict if not exists
-            if not key in gender:
-                gender[ key ] = []
+            if not key in self.unisex:
+                
+                self.unisex[ key ] = []
+                self.genders[ key ] = self.getGender( cells )
                 self.running()
             
             #insert Allele
-            gender[ key ].extend( self.getBands( cells ) )
+            self.unisex[ key ].extend( self.getBands( cells ) )
             
         except:
             #line doesn'tcontain valid data
@@ -82,14 +92,11 @@ class BandSharing():
 
     def getGender( self, cells ):
         cell = cells[ -1 ]
-        if cell.lower() == "m":
-            gender = self.males
-        elif cell.lower() == "f":
-            gender = self.females
+        if cell.lower() in [ "m", "f" ]:
+            return cell.lower()
         else:
-            gender = self.bisex
-        return gender       
-    
+            return None
+
     def getId( self, cells ):
         return int( cells[ 0 ], 10 )
     
@@ -108,15 +115,14 @@ class BandSharing():
     #      perform bandsharing evaluiation and order vectors    
     #::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     def orderVectors(self):
-        for gender_list in [ self.females, self.males, self.bisex ]:
-            for el in gender_list:
-                gender_list[ el ].sort()
+        for el in self.unisex:
+            self.unisex[ el ].sort()
         
-    def getSharedBands(self, female_id, male_id):
+    def getSharedBands(self, id_1, id_2):
         count_shared = 0
-        for band_f in self.females[ female_id ]:
-            for band_m in self.males[ male_id ]:
-                if band_f == band_m:
+        for band_1 in self.unisex[ id_1 ]:
+            for band_2 in self.unisex[ id_2 ]:
+                if band_1 == band_2:
                     count_shared += 1
                     break
         return count_shared
@@ -130,43 +136,52 @@ class BandSharing():
                 
             
     #verify complete lolcus
-    def getValidData(self, female, male):
-        valid_female_locus = self.getLocus( female )
-        valid_male_locus   = self.getLocus( male )
-        tot_f = 0
-        tot_m = 0
+    def getValidData(self, ind1, ind2 ):
+        valid_ind1_locus = self.getLocus( ind1 )
+        valid_ind2_locus   = self.getLocus( ind2 )
+        tot_ind1 = 0
+        tot_ind2 = 0
         incomplete_locus = []
-        for b in female:
+        for b in ind1:
             locus = b.split("-")[1]
-            if locus in valid_male_locus:
-                tot_f += 1
+            if locus in valid_ind2_locus:
+                tot_ind1 += 1
             else:
                 if not locus in incomplete_locus: incomplete_locus.append( locus )
         
-        for b in male:
+        for b in ind2:
             locus = b.split("-")[1]
-            if locus in valid_female_locus:
-                tot_m += 1
+            if locus in valid_ind1_locus:
+                tot_ind2 += 1
             else:
                 if not locus in incomplete_locus: incomplete_locus.append( locus )
-        return tot_f, tot_m, '_'.join( incomplete_locus )
+        return tot_ind1, tot_ind2, '_'.join( incomplete_locus )
         
     def matchAll(self):
         sys.stdout.write( 'Compute Band Sharing' )                                                                                                                                                                 
         sys.stdout.flush()
         
         bandsharing = {}
-        for f in self.females:
-            for m in self.males:
-                self.running()
-                
-                tot_shared  = self.getSharedBands( f, m )
-                tot_f, tot_m, incomplete_locus = self.getValidData( self.females[ f ], self.males[ m ] )                  
-                band_sharing = ( 2.0 * tot_shared ) / ( tot_f + tot_m )
-                bandsharing[ ( "%d-%d-%d-%d-%d-%s" %( f, m, tot_shared, tot_f, tot_m, incomplete_locus ) ) ] = band_sharing
+        for individual_1 in self.unisex:
+            for individual_2 in self.unisex:
+                if individual_1 > individual_2 and self.isVaticanApproved( individual_1, individual_2 ):
+                    self.running()
+                    tot_shared  = self.getSharedBands( individual_1, individual_2 )
+                    tot_individual_1, tot_individual_2, incomplete_locus = self.getValidData( self.unisex[ individual_1 ], self.unisex[ individual_2 ] )                  
+                    band_sharing = ( 2.0 * tot_shared ) / ( tot_individual_1 + tot_individual_2 )
+                    bandsharing[ ( "%d-%d-%d-%d-%d-%s" %( individual_1, individual_2, tot_shared, tot_individual_1, tot_individual_2, incomplete_locus ) ) ] = band_sharing
+
         self.bandsharing = sorted( bandsharing.iteritems(), key = operator.itemgetter( 1 ) )
         self.ok()
-    
+   
+    def setVatican( self, is_vatican):
+        self.vatican_constraint = is_vatican
+
+    def isVaticanApproved( self, individual_1, individual_2 ):
+        if self.vatican_constraint and ( self.genders[ individual_1 ] == self.genders[ individual_2 ] or self.genders[ individual_1 ] == None or self.genders[ individual_2 ] == None ):
+            return False
+        return True
+ 
     #::::::::::::::::::::::::::
     #      write output     
     #::::::::::::::::::::::::::
@@ -179,8 +194,9 @@ class BandSharing():
         current_time = strftime("%Y-%m-%d %H:%M:%S", gmtime()) 
         f.write( "Band Sharing produced using %s file\n" %( input_file ) )
         f.write( "Producet Time,%s\n\n\n" %( current_time ) )
-        
+       
         self.writeBandsharing( f )
+        self.writeMatrix( f )
         self.writeDetails( f )
         
         f.write( "\n\n\n%s" %( SIGNATURE ) )
@@ -189,65 +205,92 @@ class BandSharing():
         self.ok()
     
     def writeBandsharing( self, f ):
-        
         #write bandsharing
-        f.write( "Female ID,Male ID,Band Sharing,1-BS,Nfm,Nf,Nm,Ignored Locus (bacause incomplete)\n" )
+        f.write( "Individual 1, Individual 2,Band Sharing,1-BS,N12,N1,N2,Ignored Locus (bacause incomplete)\n" )
         for bs in self.bandsharing:
-            Female_ID     = bs[ 0 ].split( "-" )[ 0 ]
-            Male_ID       = bs[ 0 ].split( "-" )[ 1 ] 
+            ind1_ID       = int( bs[ 0 ].split( "-" )[ 0 ], 10 )
+            ind2_ID       = int( bs[ 0 ].split( "-" )[ 1 ], 10 )
             Band_Sharing  = bs[ 1 ]
-            Nfm           = bs[ 0 ].split( "-" )[ 2 ]
-            Nf            = bs[ 0 ].split( "-" )[ 3 ]
-            Nm            = bs[ 0 ].split( "-" )[ 4 ]
-            Nm            = bs[ 0 ].split( "-" )[ 4 ]
-            IgnoredLocus = bs[ 0 ].split( "-" )[ 5 ].replace("_", " ")
-            match_string = "%s,%s,%f,%f,%s,%s,%s,%s\n" %( Female_ID, Male_ID, Band_Sharing, 1-Band_Sharing, Nfm, Nf, Nm, IgnoredLocus ) 
+            N12           = bs[ 0 ].split( "-" )[ 2 ]
+            N1            = bs[ 0 ].split( "-" )[ 3 ]
+            N2            = bs[ 0 ].split( "-" )[ 4 ]
+            IgnoredLocus  = bs[ 0 ].split( "-" )[ 5 ].replace("_", " ")
+            match_string  = "%d [%s],%d [%s],%f,%f,%s,%s,%s,%s\n" %( ind1_ID, self.genders[ ind1_ID ], ind2_ID, self.genders[ ind2_ID ], Band_Sharing, 1-Band_Sharing, N12, N1, N2, IgnoredLocus ) 
             f.write( match_string )
-        
+    
+    def getBS( self, el1, el2 ):
+        key1 = "%s-%s-" %( el1, el2 )
+        key2 = "%s-%s-" %( el2, el1 )
+        for bs in self.bandsharing:
+            if bs[ 0 ].startswith( key1 ) or bs[ 0 ].startswith( key2 ):
+                return bs[ 1 ]
+            
+    def writeMatrix( self, f ):
+        f.write( "\n\nBand Sharing summary matrix\n\n" )
+        keys = self.unisex.keys()
+        keys.sort()
+        f.write( "BS \ 1-BS")
+        for el in keys:
+            f.write( ",%s [%s]" %( el, self.genders[ el ] ))
+
+        f.write( "\n" )
+        for el1 in keys:
+           f.write( "%s [%s]" %( el1, self.genders[ el1 ] ) )
+           for el2 in keys:
+               f.write( ",")
+               if el1 > el2 and self.isVaticanApproved( el1, el2 ):
+                   f.write( "%f" %( self.getBS( el1, el2 ) ) )
+               elif el1 < el2 and self.isVaticanApproved( el1, el2 ):
+                   f.write( "%f" %( 1 - self.getBS( el1, el2 ) ) )
+           f.write( "\n" )
+            
+
     def writeDetails( self, f ):
         #write bandsharing
         f.write( "\n\nBand Sharing details\n\n" )
         for bs in self.bandsharing:
             self.running()
-            Female_ID    = int( bs[ 0 ].split( "-" )[ 0 ], 10 )
-            Male_ID      = int( bs[ 0 ].split( "-" )[ 1 ], 10 )  
+            ind1_ID    = int( bs[ 0 ].split( "-" )[ 0 ], 10 )
+            ind2_ID    = int( bs[ 0 ].split( "-" )[ 1 ], 10 )  
             
-            female_bands = self.females[ Female_ID ]
-            male_bands   = self.males[ Male_ID ]
+            ind1_bands = self.unisex[ ind1_ID ]
+            ind2_bands = self.unisex[ ind2_ID ]
             bandsharing  = bs[ 1 ]
             ignored_locus = bs[ 0 ].split("-")[-1].split("_")
 
-            f.write( "Love affinity details between female id %s an male id %s (Band Sharing = %f and Ignored Locus = %s )\n" %( Female_ID, Male_ID, bandsharing, ' '.join( ignored_locus ) ) )
+            f.write( "Love affinity details between individual ID %d [%s] an individual ID %s [%s] (Band Sharing = %f and Ignored Locus = %s )\n" 
+                    %( ind1_ID, self.genders[ ind1_ID ], ind2_ID, self.genders[ ind2_ID ], bandsharing, ' '.join( ignored_locus ) ) 
+                    )
                 
             #run until left or right is out
             i, j = 0, 0
-            while i < len( female_bands ) and j < len( male_bands ):
-                female_band_val = female_bands[ i ].split("-")[0]
-                male_band_val   = male_bands[ j ].split("-")[0]
+            while i < len( ind1_bands ) and j < len( ind2_bands ):
+                ind1_band_val = ind1_bands[ i ].split("-")[0]
+                ind2_band_val = ind2_bands[ j ].split("-")[0]
                 
-                female_band_locus = female_bands[ i ].split("-")[1]
-                male_band_locus   = male_bands[ j ].split("-")[1]
+                ind1_band_locus = ind1_bands[ i ].split("-")[1]
+                ind2_band_locus = ind2_bands[ j ].split("-")[1]
                 
                 #if current left val is < current right val; assign to master list
-                if female_band_val < male_band_val:
-                    if female_band_locus not in ignored_locus:
-                        f.write( "%s,\n" %( female_bands[ i ]) )
+                if ind1_band_val < ind2_band_val:
+                    if ind1_band_locus not in ignored_locus:
+                        f.write( "%s,\n" %( ind1_bands[ i ]) )
                     i += 1; 
-                elif female_band_val == male_band_val:
-                    if female_band_locus not in ignored_locus and female_band_locus not in ignored_locus:
-                        f.write( "%s,%s\n" %( female_bands[ i ], male_bands[ j ]) )
+                elif ind1_band_val == ind2_band_val:
+                    if ind1_band_locus not in ignored_locus and ind1_band_locus not in ignored_locus:
+                        f.write( "%s,%s\n" %( ind1_bands[ i ], ind2_bands[ j ]) )
                     i += 1; j += 1
                 else:
-                    if male_band_locus not in ignored_locus:
-                        f.write( ",%s\n" %( male_bands[ j ]) )
+                    if ind2_band_locus not in ignored_locus:
+                        f.write( ",%s\n" %( ind2_bands[ j ]) )
                     j += 1;
             
-            if i < len( female_bands ):
-                for k in range( i, len( female_bands ) ):
-                    f.write( "%s,\n" %( female_bands[ k ]) )
-            elif j < len( male_bands ):
-                for k in range( j, len( male_bands ) ):
-                    f.write( ",%s\n" %( male_bands[ k ]) )
+            if i < len( ind1_bands ):
+                for k in range( i, len( ind1_bands ) ):
+                    f.write( "%s,\n" %( ind1_bands[ k ]) )
+            elif j < len( ind2_bands ):
+                for k in range( j, len( ind2_bands ) ):
+                    f.write( ",%s\n" %( ind2_bands[ k ]) )
             
             
             f.write( "\n" )
@@ -261,7 +304,11 @@ class BandSharing():
             self.orderVectors()
             self.matchAll()
             
-            output_filename = "computed_bandsharing_" + input_filename
+            if self.vatican_constraint:
+                output_filename = "bandsharing_" + input_filename
+            else:
+                output_filename = "rainbow_bandsharing_" + input_filename
+
             output_filename_complete = os.path.join( self.output_dir, output_filename )
             if not os.path.isfile( output_filename_complete ) or OVERWRITE:
                 self.write( output_filename_complete, input_filename )
@@ -273,10 +320,10 @@ class BandSharing():
                     print "skipp %s" %( output_filename )
             
             #reset variables
-            self.females = {}
-            self.males   = {}
-            self.bisex   = {}
+            self.genders = {}
+            self.unisex  = {}
             self.bandsharing = []
+            print ""
             
                     
     def ok( self ):
